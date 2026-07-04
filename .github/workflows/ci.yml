@@ -292,7 +292,7 @@ jobs:
                 check_name: "QA Smoke CI",
                 runtime: "node",
                 task: "qa-smoke-ci",
-                runner: "blacksmith-8vcpu-ubuntu-2404",
+                runner: "blacksmith-16vcpu-ubuntu-2404",
               },
               { check_name: "checks-fast-bun-launcher", runtime: "bun", task: "bun-launcher" },
             );
@@ -883,7 +883,7 @@ jobs:
               export OPENCLAW_QA_REDACT_PUBLIC_METADATA=1
               export OPENCLAW_QA_TRANSPORT_READY_TIMEOUT_MS=180000
               package_dir=".artifacts/docker-e2e-package"
-              NODE_OPTIONS=--max-old-space-size=8192 node scripts/package-openclaw-for-docker.mjs \
+              NODE_OPTIONS=--max-old-space-size=16384 node scripts/package-openclaw-for-docker.mjs \
                 --output-dir "$package_dir" \
                 --output-name openclaw-current.tgz
               export OPENCLAW_CURRENT_PACKAGE_TGZ="$package_dir/openclaw-current.tgz"
