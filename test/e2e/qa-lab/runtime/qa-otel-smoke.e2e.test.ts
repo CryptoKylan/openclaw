@@ -200,6 +200,16 @@ describe("qa-otel-smoke receiver bounds", () => {
     );
   });
 
+  it("passes a repo-relative output dir to the nested QA suite", () => {
+    const outputDir = path.join(process.cwd(), ".artifacts", "qa-e2e", "otel-smoke-test");
+    const args = testing.buildQaArgs(testing.parseArgs(["--output-dir", outputDir]));
+
+    expect(args.slice(args.indexOf("--output-dir"), args.indexOf("--output-dir") + 2)).toEqual([
+      "--output-dir",
+      path.join(".artifacts", "qa-e2e", "otel-smoke-test"),
+    ]);
+  });
+
   it("parses body-size limit env values as strict positive integers", () => {
     expect(testing.readPositiveIntegerEnv("OTEL_TEST_LIMIT", 64, {})).toBe(64);
     expect(

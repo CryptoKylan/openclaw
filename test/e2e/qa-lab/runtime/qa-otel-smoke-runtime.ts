@@ -1506,6 +1506,7 @@ function buildQaEnv(port: number): NodeJS.ProcessEnv {
 }
 
 function buildQaArgs(options: CliOptions): string[] {
+  const qaOutputDir = path.relative(process.cwd(), path.resolve(options.outputDir));
   const args = [
     "qa",
     "suite",
@@ -1516,7 +1517,7 @@ function buildQaArgs(options: CliOptions): string[] {
     "--concurrency",
     "1",
     "--output-dir",
-    options.outputDir,
+    qaOutputDir,
     "--fast",
   ];
   if (options.primaryModel) {
@@ -2019,6 +2020,7 @@ export const testing = {
   appendCapturedBodyText,
   assertSmoke,
   buildQaEnv,
+  buildQaArgs,
   createBoundedTextAccumulator,
   createStdoutDiagnosticLogCapture,
   decodeRequestBody,
