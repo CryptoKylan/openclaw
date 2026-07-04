@@ -1206,6 +1206,7 @@ function resolveCooldownDecision(params: {
       store: params.authStore,
       profileIds: params.profileIds,
       now: params.now,
+      forModel: params.candidate.model,
     }) ?? "unknown";
   const shouldProbe = shouldProbePrimaryDuringCooldown({
     isPrimary: params.isPrimary,
