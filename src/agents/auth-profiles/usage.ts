@@ -175,6 +175,7 @@ function applyWhamCooldownResult(params: {
   computed: ProfileUsageStats;
   now: number;
   whamResult: WhamCooldownProbeResult;
+  modelId?: string;
 }): ProfileUsageStats {
   const existingCooldownUntil = params.existing.cooldownUntil;
   const existingBlockedUntil = params.existing.blockedUntil;
@@ -196,7 +197,7 @@ function applyWhamCooldownResult(params: {
       blockedUntil: Math.max(existingActiveBlockedUntil, params.whamResult.blockedUntil),
       blockedReason: "subscription_limit",
       blockedSource: params.whamResult.blockedSource ?? "wham",
-      blockedModel: undefined,
+      blockedModel: params.modelId,
       cooldownUntil: undefined,
       cooldownReason: undefined,
       cooldownModel: undefined,
@@ -753,6 +754,7 @@ export async function markAuthProfileFailure(params: {
               computed,
               now,
               whamResult,
+              modelId,
             })
           : computed;
       updateUsageStatsEntry(freshStore, profileId, () => nextStats ?? computed);
@@ -810,6 +812,7 @@ export async function markAuthProfileFailure(params: {
           computed,
           now,
           whamResult,
+          modelId,
         })
       : computed;
   updateUsageStatsEntry(store, profileId, () => nextStats ?? computed);
