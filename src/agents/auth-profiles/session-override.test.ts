@@ -4,14 +4,23 @@
  * updates without loading the real auth store implementation.
  */
 import fs from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  loadSessionEntry,
+  patchSessionEntry,
+  replaceSessionEntry,
+} from "../../config/sessions/session-accessor.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   type OpenClawTestState,
   withOpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
-import { resolveSessionAuthProfileOverride } from "./session-override.js";
+import {
+  clearSessionAuthProfileOverride,
+  resolveSessionAuthProfileOverride,
+} from "./session-override.js";
 import type { AuthProfileStore } from "./types.js";
 
 const authStoreMocks = vi.hoisted(() => {
@@ -187,6 +196,63 @@ describe("resolveSessionAuthProfileOverride", () => {
         return;
       }
       throw new Error("Expected auth-profiles.json to be absent");
+    });
+  });
+
+  it("threads the requested model into cooldown checks so a model-scoped cooldown does not evict an otherwise-usable profile", async () => {
+    await withAuthState(async (state) => {
+      const agentDir = state.agentDir();
+      await fs.mkdir(agentDir, { recursive: true });
+      authStoreMocks.state.hasSource = true;
+      authStoreMocks.state.store = createAuthStoreWithProfiles({
+        profiles: {
+          [TEST_PRIMARY_PROFILE_ID]: {
+            type: "api_key",
+            provider: "openai",
+            key: "sk-primary",
+          },
+          [TEST_SECONDARY_PROFILE_ID]: {
+            type: "api_key",
+            provider: "openai",
+            key: "sk-secondary",
+          },
+        },
+        order: {
+          openai: [TEST_PRIMARY_PROFILE_ID, TEST_SECONDARY_PROFILE_ID],
+        },
+      });
+      // Only report cooldown for the primary profile when the caller asks
+      // about "gpt-other" - a different model than the one being requested.
+      authStoreMocks.isProfileInCooldown.mockImplementation(
+        (_store: AuthProfileStore, profileId: string, _now?: number, forModel?: string) =>
+          profileId === TEST_PRIMARY_PROFILE_ID && forModel === "gpt-other",
+      );
+
+      const sessionEntry: SessionEntry = {
+        sessionId: "s1",
+        updatedAt: Date.now(),
+      };
+      const sessionStore = { "agent:main:main": sessionEntry };
+
+      const resolved = await resolveSessionAuthProfileOverride({
+        cfg: {} as OpenClawConfig,
+        provider: "openai",
+        agentDir,
+        sessionEntry,
+        sessionStore,
+        sessionKey: "agent:main:main",
+        storePath: undefined,
+        isNewSession: true,
+        model: "gpt-mine",
+      });
+
+      expect(resolved).toBe(TEST_PRIMARY_PROFILE_ID);
+      expect(authStoreMocks.isProfileInCooldown).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        undefined,
+        "gpt-mine",
+      );
     });
   });
 
@@ -563,7 +629,41 @@ describe("resolveSessionAuthProfileOverride", () => {
     });
   });
 
-  it("threads the requested model into cooldown checks so a model-scoped cooldown does not evict an otherwise-usable profile", async () => {
+  it("clears auth state without restoring concurrent session management fields", async () => {
+    await withAuthState(async (state) => {
+      const sessionKey = "agent:main:main";
+      const storePath = path.join(state.sessionsDir(), "sessions.json");
+      const scope = { storePath, sessionKey };
+      await replaceSessionEntry(scope, {
+        sessionId: "s1",
+        updatedAt: 1,
+        label: "before",
+        pinnedAt: 1,
+        authProfileOverride: TEST_PRIMARY_PROFILE_ID,
+        authProfileOverrideSource: "user",
+      });
+      const sessionEntry = loadSessionEntry({ ...scope, readConsistency: "latest" });
+      expect(sessionEntry).toBeDefined();
+      const sessionStore = { [sessionKey]: sessionEntry! };
+
+      await patchSessionEntry(scope, () => ({ label: "renamed", pinnedAt: undefined }));
+      await clearSessionAuthProfileOverride({
+        sessionEntry: sessionEntry!,
+        sessionStore,
+        sessionKey,
+        storePath,
+      });
+
+      const persisted = loadSessionEntry({ ...scope, readConsistency: "latest" });
+      expect(persisted?.label).toBe("renamed");
+      expect(persisted?.pinnedAt).toBeUndefined();
+      expect(persisted?.authProfileOverride).toBeUndefined();
+      expect(sessionStore[sessionKey]?.label).toBe("renamed");
+      expect(sessionStore[sessionKey]?.pinnedAt).toBeUndefined();
+    });
+  });
+
+  it("rotates auth state without restoring concurrent session management fields", async () => {
     await withAuthState(async (state) => {
       const agentDir = state.agentDir();
       await fs.mkdir(agentDir, { recursive: true });
@@ -585,38 +685,43 @@ describe("resolveSessionAuthProfileOverride", () => {
           openai: [TEST_PRIMARY_PROFILE_ID, TEST_SECONDARY_PROFILE_ID],
         },
       });
-      // Only report cooldown for the primary profile when the caller asks
-      // about "gpt-other" - a different model than the one being requested.
-      authStoreMocks.isProfileInCooldown.mockImplementation(
-        (_store: AuthProfileStore, profileId: string, _now?: number, forModel?: string) =>
-          profileId === TEST_PRIMARY_PROFILE_ID && forModel === "gpt-other",
-      );
 
-      const sessionEntry: SessionEntry = {
+      const sessionKey = "agent:main:main";
+      const storePath = path.join(state.sessionsDir(), "sessions.json");
+      const scope = { storePath, sessionKey };
+      await replaceSessionEntry(scope, {
         sessionId: "s1",
-        updatedAt: Date.now(),
-      };
-      const sessionStore = { "agent:main:main": sessionEntry };
+        updatedAt: 1,
+        label: "before",
+        pinnedAt: 1,
+        compactionCount: 1,
+        authProfileOverride: TEST_PRIMARY_PROFILE_ID,
+        authProfileOverrideSource: "auto",
+        authProfileOverrideCompactionCount: 0,
+      });
+      const sessionEntry = loadSessionEntry({ ...scope, readConsistency: "latest" });
+      expect(sessionEntry).toBeDefined();
+      const sessionStore = { [sessionKey]: sessionEntry! };
 
+      await patchSessionEntry(scope, () => ({ label: "renamed", pinnedAt: undefined }));
       const resolved = await resolveSessionAuthProfileOverride({
         cfg: {} as OpenClawConfig,
         provider: "openai",
         agentDir,
-        sessionEntry,
+        sessionEntry: sessionEntry!,
         sessionStore,
-        sessionKey: "agent:main:main",
-        storePath: undefined,
-        isNewSession: true,
-        model: "gpt-mine",
+        sessionKey,
+        storePath,
+        isNewSession: false,
       });
 
-      expect(resolved).toBe(TEST_PRIMARY_PROFILE_ID);
-      expect(authStoreMocks.isProfileInCooldown).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        undefined,
-        "gpt-mine",
-      );
+      expect(resolved).toBe(TEST_SECONDARY_PROFILE_ID);
+      const persisted = loadSessionEntry({ ...scope, readConsistency: "latest" });
+      expect(persisted?.label).toBe("renamed");
+      expect(persisted?.pinnedAt).toBeUndefined();
+      expect(persisted?.authProfileOverride).toBe(TEST_SECONDARY_PROFILE_ID);
+      expect(sessionStore[sessionKey]?.label).toBe("renamed");
+      expect(sessionStore[sessionKey]?.pinnedAt).toBeUndefined();
     });
   });
 });
