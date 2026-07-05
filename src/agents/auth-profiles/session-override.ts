@@ -84,11 +84,10 @@ export async function clearSessionAuthProfileOverride(params: {
   if (storePath) {
     await (
       await loadSessionAccessor()
-    ).patchSessionEntry(
-      { storePath, sessionKey },
-      () => sessionEntry,
-      { fallbackEntry: sessionEntry, replaceEntry: true },
-    );
+    ).patchSessionEntry({ storePath, sessionKey }, () => sessionEntry, {
+      fallbackEntry: sessionEntry,
+      replaceEntry: true,
+    });
   }
 }
 
@@ -103,6 +102,7 @@ export async function resolveSessionAuthProfileOverride(params: {
   storePath?: string;
   isNewSession: boolean;
   acceptedProviderIds?: string[];
+  model?: string;
 }): Promise<string | undefined> {
   const {
     cfg,
@@ -113,6 +113,7 @@ export async function resolveSessionAuthProfileOverride(params: {
     sessionKey,
     storePath,
     isNewSession,
+    model,
   } = params;
   if (!sessionEntry || !sessionStore || !sessionKey) {
     return sessionEntry?.authProfileOverride;
@@ -179,7 +180,7 @@ export async function resolveSessionAuthProfileOverride(params: {
   }
 
   const pickFirstAvailable = () =>
-    order.find((profileId) => !isProfileInCooldown(store, profileId)) ?? order[0];
+    order.find((profileId) => !isProfileInCooldown(store, profileId, undefined, model)) ?? order[0];
   const pickNextAvailable = (active: string) => {
     const startIndex = order.indexOf(active);
     if (startIndex < 0) {
@@ -187,7 +188,7 @@ export async function resolveSessionAuthProfileOverride(params: {
     }
     for (let offset = 1; offset <= order.length; offset += 1) {
       const candidate = order[(startIndex + offset) % order.length];
-      if (!isProfileInCooldown(store, candidate)) {
+      if (!isProfileInCooldown(store, candidate, undefined, model)) {
         return candidate;
       }
     }
@@ -200,8 +201,11 @@ export async function resolveSessionAuthProfileOverride(params: {
       ? sessionEntry.authProfileOverrideCompactionCount
       : compactionCount;
   const replacementForUnusableCurrent =
-    current && isProfileInCooldown(store, current)
-      ? order.find((profileId) => profileId !== current && !isProfileInCooldown(store, profileId))
+    current && isProfileInCooldown(store, current, undefined, model)
+      ? order.find(
+          (profileId) =>
+            profileId !== current && !isProfileInCooldown(store, profileId, undefined, model),
+        )
       : undefined;
   // User-pinned profiles persist unless unusable/mismatched. Auto-selected
   // profiles rotate on new sessions or compaction boundaries.
@@ -219,7 +223,7 @@ export async function resolveSessionAuthProfileOverride(params: {
     next = current ? pickNextAvailable(current) : pickFirstAvailable();
   } else if (current && compactionCount > storedCompaction) {
     next = pickNextAvailable(current);
-  } else if (!current || isProfileInCooldown(store, current)) {
+  } else if (!current || isProfileInCooldown(store, current, undefined, model)) {
     next = pickFirstAvailable();
   }
 
@@ -239,11 +243,10 @@ export async function resolveSessionAuthProfileOverride(params: {
     if (storePath) {
       await (
         await loadSessionAccessor()
-      ).patchSessionEntry(
-        { storePath, sessionKey },
-        () => sessionEntry,
-        { fallbackEntry: sessionEntry, replaceEntry: true },
-      );
+      ).patchSessionEntry({ storePath, sessionKey }, () => sessionEntry, {
+        fallbackEntry: sessionEntry,
+        replaceEntry: true,
+      });
     }
   }
 
